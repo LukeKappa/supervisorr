@@ -1,0 +1,14 @@
+[supervisorr]
+# socket_file = "/tmp/supervisorr.sock"
+
+[program.my_app]
+command = "echo 'Replace this with your process command!'"
+directory = "/home/luke/supervisorr"
+autostart = true
+autorestart = true
+stdout_logfile = "/home/luke/supervisorr/my_app.log"
+stderr_logfile = "/home/luke/supervisorr/my_app.err"
+
+# [program.my_app.environment]
+# PORT = "8080"
+# NODE_ENV = "production"

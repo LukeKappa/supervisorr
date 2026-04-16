@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+
+      - name: Build Optimized Executable
+        run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+      - name: Generate yymmdd Tag
+        id: tag
+        run: |
+          DATE_TAG=$(date +'%y%m%d')
+          # Append run number to prevent tag collision if multiple commits per day
+          echo "date=${DATE_TAG}.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.date }}
+          name: Release ${{ steps.tag.outputs.date }}
+          files: target/x86_64-unknown-linux-gnu/release/supervisorr
+          draft: false
+          prerelease: false
+          make_latest: true
