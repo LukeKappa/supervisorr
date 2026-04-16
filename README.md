@@ -30,9 +30,14 @@ NODE_ENV = "production"
 
 ## Usage
 
-Start the Daemon:
+First, generate a default configuration file in your local directory natively:
 ```bash
-./supervisorr daemon -c /path/to/supervisorr.toml
+./supervisorr init
+```
+
+Start the Daemon natively tracking the local file:
+```bash
+./supervisorr daemon -c ./supervisorr.toml
 ```
 
 Manage Processes via Client CLI:
