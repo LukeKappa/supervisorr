@@ -11,6 +11,11 @@ use std::process::Stdio;
 use std::fs::OpenOptions;
 
 pub async fn run(config_path: &str) -> anyhow::Result<()> {
+    if !std::path::Path::new(config_path).exists() {
+        eprintln!("Configuration file not found at: {}", config_path);
+        eprintln!("Run `supervisorr init` to generate a default configuration file in your current directory.");
+        std::process::exit(1);
+    }
     println!("Starting supervisorr daemon using config: {}", config_path);
     let config_content = std::fs::read_to_string(config_path).unwrap_or_else(|_| "".to_string());
     
