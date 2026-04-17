@@ -5,11 +5,18 @@
     <title>Supervisorr Matrix</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; padding: 20px; }
-        .card { background: #222; border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 5px solid #555; }
+        .card { background: #222; border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 5px solid #555; position: relative; }
         .running { border-color: #2ecc71; }
         .stopped { border-color: #e74c3c; }
         .title { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
-        .info { font-size: 0.9em; color: #aaa; }
+        .info { font-size: 0.9em; color: #aaa; margin-bottom: 8px; }
+        .tunnel-info { font-size: 0.85em; color: #f39c12; font-family: monospace; }
+        .btn-group { display: flex; gap: 8px; }
+        .btn { padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
+        .btn-start { background: #2ecc71; }
+        .btn-stop { background: #e74c3c; }
+        .btn-tunnel-start { background: #f39c12; }
+        .btn-tunnel-stop { background: #d35400; }
         #drop-zone {
             border: 2px dashed #555;
             border-radius: 8px;
@@ -69,7 +76,7 @@
                 const data = await res.json();
                 if (data.success) {
                     dropZone.innerText = "Drag & Drop an Executable Here to Deploy";
-                    fetchStatus(); // immediate refresh
+                    fetchStatus();
                 } else {
                     dropZone.innerText = "Error: " + data.error;
                     setTimeout(() => { dropZone.innerText = "Drag & Drop an Executable Here to Deploy"; }, 3000);
@@ -94,17 +101,25 @@
                 }
 
                 data.forEach(p => {
+                    const hasTunnel = p.tunnel_domain !== null && p.tunnel_domain !== undefined;
+                    const tunnelHtml = hasTunnel ? `<div class="tunnel-info">🚀 Tunnel: ${p.tunnel_domain}</div>` : '';
+                    const tunnelBtnHtml = hasTunnel 
+                        ? `<button class="btn btn-tunnel-stop" onclick="sendTunnel('stop', '${p.name}')">Stop Tunnel</button>`
+                        : `<button class="btn btn-tunnel-start" onclick="sendTunnel('start', '${p.name}')">Start Tunnel</button>`;
+
                     const card = document.createElement('div');
                     card.className = 'card ' + (p.status.includes('Running') ? 'running' : 'stopped');
                     card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                             <div>
                                 <div class="title">${p.name}</div>
                                 <div class="info">Status: ${p.status} | Intent: ${p.intent}</div>
+                                ${tunnelHtml}
                             </div>
-                            <div>
-                                <button onclick="sendAction('start', '${p.name}')" style="background:#2ecc71; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Start</button>
-                                <button onclick="sendAction('stop', '${p.name}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Stop</button>
+                            <div class="btn-group">
+                                <button class="btn btn-start" onclick="sendAction('start', '${p.name}')">Start</button>
+                                <button class="btn btn-stop" onclick="sendAction('stop', '${p.name}')">Stop</button>
+                                ${tunnelBtnHtml}
                             </div>
                         </div>
                     `;
@@ -121,6 +136,36 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action, target })
+                });
+                fetchStatus();
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        async function sendTunnel(action, target) {
+            let domain = "";
+            let port = 8080;
+
+            if (action === "start") {
+                domain = prompt("Enter domain (e.g. subdomain.domain.com), or leave blank for a Quick Tunnel:");
+                if (domain === null) return; // User cancelled
+
+                const portStr = prompt("Local Execution Port (e.g. 8080):", "8080");
+                if (portStr === null) return;
+                
+                port = parseInt(portStr, 10);
+                if (isNaN(port)) {
+                    alert("Invalid port number!");
+                    return;
+                }
+            }
+
+            try {
+                await fetch('/api/tunnel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, target, domain, port })
                 });
                 fetchStatus();
             } catch(e) {

@@ -32,6 +32,10 @@ pub async fn start_web(state: SharedState) -> anyhow::Result<()> {
             let state = Arc::clone(&state);
             move |multipart| api_upload(state, multipart)
         }))
+        .route("/api/tunnel", post({
+            let state = Arc::clone(&state);
+            move |payload| api_tunnel(state, payload)
+        }))
         .layer(axum::extract::DefaultBodyLimit::disable());
 
     let config_bind = {
@@ -70,12 +74,14 @@ struct ProcessStatusDto {
     name: String,
     status: String,
     intent: String,
+    tunnel_domain: Option<String>,
 }
 
 async fn api_status(state: SharedState) -> Json<Vec<ProcessStatusDto>> {
     let mut data = Vec::new();
     let s = state.read().await;
     for (name, ps) in &s.processes {
+        if name.starts_with("_tunnel_") { continue; }
         let status_str = match &ps.status {
             Status::Stopped => "Stopped".to_string(),
             Status::Running(pid) => format!("Running (pid {})", pid),
@@ -86,10 +92,16 @@ async fn api_status(state: SharedState) -> Json<Vec<ProcessStatusDto>> {
             Intent::Run => "Run".to_string(),
             Intent::Stop => "Stop".to_string(),
         };
+        
+        let tunnel_domain = s.config.program.get(name).and_then(|p| p.tunnel.as_ref().map(|t| {
+            if t.is_quick { "Quick Tunnel (Check Logs)".to_string() } else { t.domain.clone() }
+        }));
+
         data.push(ProcessStatusDto {
             name: name.clone(),
             status: status_str,
             intent: intent_str,
+            tunnel_domain,
         });
     }
     data.sort_by(|a, b| a.name.cmp(&b.name));
@@ -130,6 +142,100 @@ async fn api_action(state: SharedState, axum::Json(payload): axum::Json<ActionPa
     }
 }
 
+#[derive(serde::Deserialize)]
+struct TunnelPayload {
+    action: String,
+    target: String,
+    domain: Option<String>,
+    port: Option<u16>,
+}
+
+async fn api_tunnel(state: SharedState, axum::Json(payload): axum::Json<TunnelPayload>) -> Json<ActionResponse> {
+    let mut s = state.write().await;
+    let target = &payload.target;
+
+    if s.processes.get(target).is_none() {
+        return Json(ActionResponse { success: false, error: Some("Process not found".to_string()) });
+    }
+
+    if payload.action == "start" {
+        let domain_str = payload.domain.unwrap_or_default();
+        let is_quick = domain_str.trim().is_empty();
+        let domain_final = if is_quick { "quick".to_string() } else { domain_str.trim().to_string() };
+        let port_final = payload.port.unwrap_or(8080);
+        
+        let t_config = crate::config::TunnelConfig {
+            domain: domain_final.clone(),
+            port: port_final,
+            is_quick,
+        };
+
+        if let Some(prog) = s.config.program.get_mut(target) {
+            prog.tunnel = Some(t_config.clone());
+        }
+        
+        if let Ok(toml_str) = toml::to_string(&s.config) {
+            let _ = tokio::fs::write(&s.config_path, toml_str).await;
+        }
+
+        drop(s);
+        
+        let state_clone = state.clone();
+        let target_clone = target.clone();
+        tokio::spawn(async move {
+            let tunnel_prog_name = format!("_tunnel_{}", target_clone);
+            let command = if is_quick {
+                format!("cloudflared tunnel --url http://127.0.0.1:{}", port_final)
+            } else {
+                let _ = tokio::process::Command::new("cloudflared").args(["tunnel", "create", &tunnel_prog_name]).output().await;
+                let _ = tokio::process::Command::new("cloudflared").args(["tunnel", "route", "dns", &tunnel_prog_name, &domain_final]).output().await;
+                format!("cloudflared tunnel run {}", tunnel_prog_name)
+            };
+
+            let new_prog = crate::config::ProgramConfig {
+                command,
+                directory: None,
+                autostart: true,
+                autorestart: true,
+                environment: None,
+                stdout_logfile: Some(format!("{}.log", tunnel_prog_name)),
+                stderr_logfile: None,
+                tunnel: None,
+            };
+
+            {
+                let mut ss = state_clone.write().await;
+                ss.processes.insert(tunnel_prog_name.clone(), ProcessState {
+                    intent: Intent::Run,
+                    status: Status::Stopped,
+                });
+            }
+
+            crate::daemon::supervise_program(tunnel_prog_name, new_prog, state_clone).await;
+        });
+
+        Json(ActionResponse { success: true, error: None })
+    } else if payload.action == "stop" {
+        if let Some(prog) = s.config.program.get_mut(target) {
+            prog.tunnel = None;
+        }
+        if let Ok(toml_str) = toml::to_string(&s.config) {
+            let _ = tokio::fs::write(&s.config_path, toml_str).await;
+        }
+
+        let tunnel_prog_name = format!("_tunnel_{}", target);
+        if let Some(ps) = s.processes.get_mut(&tunnel_prog_name) {
+            ps.intent = Intent::Stop;
+            if let Status::Running(pid) = ps.status {
+                let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGTERM);
+            }
+        }
+        Json(ActionResponse { success: true, error: None })
+    } else {
+        Json(ActionResponse { success: false, error: Some("Unknown action".to_string()) })
+    }
+}
+
 async fn api_upload(state: SharedState, mut multipart: Multipart) -> Json<ActionResponse> {
     while let Ok(Some(field)) = multipart.next_field().await {
         if field.name() == Some("executable") {
@@ -164,6 +270,7 @@ async fn api_upload(state: SharedState, mut multipart: Multipart) -> Json<Action
                 environment: None,
                 stdout_logfile: Some(current_dir.join(format!("{}.log", file_name)).to_string_lossy().to_string()),
                 stderr_logfile: Some(current_dir.join(format!("{}.err", file_name)).to_string_lossy().to_string()),
+                tunnel: None,
             };
 
             {

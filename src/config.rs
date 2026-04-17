@@ -18,6 +18,13 @@ pub struct SupervisorrConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TunnelConfig {
+    pub domain: String,
+    pub port: u16,
+    pub is_quick: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProgramConfig {
     pub command: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,6 +39,8 @@ pub struct ProgramConfig {
     pub stdout_logfile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stderr_logfile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tunnel: Option<TunnelConfig>,
 }
 
 fn default_true() -> bool { true }
