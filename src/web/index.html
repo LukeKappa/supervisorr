@@ -102,7 +102,6 @@
 
                 data.forEach(p => {
                     const hasTunnel = p.tunnel_domain !== null && p.tunnel_domain !== undefined;
-                    const tunnelHtml = hasTunnel ? `<div class="tunnel-info">🚀 Tunnel: ${p.tunnel_domain}</div>` : '';
                     const tunnelBtnHtml = hasTunnel 
                         ? `<button class="btn btn-tunnel-stop" onclick="sendTunnel('stop', '${p.name}')">Stop Tunnel</button>`
                         : `<button class="btn btn-tunnel-start" onclick="sendTunnel('start', '${p.name}')">Start Tunnel</button>`;
@@ -114,7 +113,7 @@
                             <div>
                                 <div class="title">${p.name}</div>
                                 <div class="info">Status: ${p.status} | Intent: ${p.intent}</div>
-                                ${tunnelHtml}
+                                <div class="tunnel-info" id="tunnel-${p.name}"></div>
                             </div>
                             <div class="btn-group">
                                 <button class="btn btn-start" onclick="sendAction('start', '${p.name}')">Start</button>
@@ -124,6 +123,28 @@
                         </div>
                     `;
                     container.appendChild(card);
+
+                    // Resolve tunnel URL display
+                    if (hasTunnel) {
+                        if (p.tunnel_domain === "Quick Tunnel (Check Logs)") {
+                            // Poll for the actual quick tunnel URL
+                            fetch('/api/tunnel_url', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ target: p.name })
+                            }).then(r => r.json()).then(d => {
+                                const el = document.getElementById('tunnel-' + p.name);
+                                if (el && d.url) {
+                                    el.innerHTML = `🔗 <a href="${d.url}" target="_blank" style="color:#f39c12;">${d.url}</a>`;
+                                } else if (el) {
+                                    el.innerText = "⏳ Quick Tunnel starting...";
+                                }
+                            }).catch(() => {});
+                        } else {
+                            const el = document.getElementById('tunnel-' + p.name);
+                            if (el) el.innerHTML = `🔗 <a href="https://${p.tunnel_domain}" target="_blank" style="color:#f39c12;">${p.tunnel_domain}</a>`;
+                        }
+                    }
                 });
             } catch(e) {
                 console.error(e);
@@ -145,28 +166,23 @@
 
         async function sendTunnel(action, target) {
             let domain = "";
-            let port = 8080;
+            let port = null;
 
             if (action === "start") {
                 domain = prompt("Enter domain (e.g. subdomain.domain.com), or leave blank for a Quick Tunnel:");
-                if (domain === null) return; // User cancelled
-
-                const portStr = prompt("Local Execution Port (e.g. 8080):", "8080");
-                if (portStr === null) return;
-                
-                port = parseInt(portStr, 10);
-                if (isNaN(port)) {
-                    alert("Invalid port number!");
-                    return;
-                }
+                if (domain === null) return;
             }
 
             try {
-                await fetch('/api/tunnel', {
+                const res = await fetch('/api/tunnel', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action, target, domain, port })
                 });
+                const data = await res.json();
+                if (!data.success) {
+                    alert("Tunnel error: " + data.error);
+                }
                 fetchStatus();
             } catch(e) {
                 console.error(e);
