@@ -10,13 +10,77 @@
         .stopped { border-color: #e74c3c; }
         .title { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
         .info { font-size: 0.9em; color: #aaa; }
+        #drop-zone {
+            border: 2px dashed #555;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            background: #1a1a1a;
+            color: #888;
+            transition: all 0.2s;
+        }
+        #drop-zone.dragover {
+            border-color: #2ecc71;
+            background: #153320;
+            color: #2ecc71;
+        }
     </style>
 </head>
 <body>
     <h1>Supervisorr Dashboard</h1>
+    
+    <div id="drop-zone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        Drag & Drop an Executable Here to Deploy
+    </div>
+
     <div id="processes">Loading processes...</div>
 
     <script>
+        function handleDragOver(e) {
+            e.preventDefault();
+            document.getElementById('drop-zone').classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            document.getElementById('drop-zone').classList.remove('dragover');
+        }
+
+        async function handleDrop(e) {
+            e.preventDefault();
+            const dropZone = document.getElementById('drop-zone');
+            dropZone.classList.remove('dragover');
+            
+            const file = e.dataTransfer.files[0];
+            if (!file) return;
+
+            dropZone.innerText = "Uploading " + file.name + "...";
+
+            const formData = new FormData();
+            formData.append("executable", file);
+
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    dropZone.innerText = "Drag & Drop an Executable Here to Deploy";
+                    fetchStatus(); // immediate refresh
+                } else {
+                    dropZone.innerText = "Error: " + data.error;
+                    setTimeout(() => { dropZone.innerText = "Drag & Drop an Executable Here to Deploy"; }, 3000);
+                }
+            } catch(e) {
+                console.error(e);
+                dropZone.innerText = "Upload failed!";
+                setTimeout(() => { dropZone.innerText = "Drag & Drop an Executable Here to Deploy"; }, 3000);
+            }
+        }
+
         async function fetchStatus() {
             try {
                 const response = await fetch('/api/status');

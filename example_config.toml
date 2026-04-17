@@ -1,5 +1,20 @@
 [supervisorr]
-# socket_file = "/tmp/supervisorr.sock"
+
+[program.ls]
+command = "/home/luke/supervisorr/ls"
+directory = "/home/luke/supervisorr"
+autostart = true
+autorestart = true
+stdout_logfile = "/home/luke/supervisorr/ls.log"
+stderr_logfile = "/home/luke/supervisorr/ls.err"
+
+[program.metasearch]
+command = "/home/luke/supervisorr/metasearch"
+directory = "/home/luke/supervisorr"
+autostart = true
+autorestart = true
+stdout_logfile = "/home/luke/supervisorr/metasearch.log"
+stderr_logfile = "/home/luke/supervisorr/metasearch.err"
 
 [program.my_app]
 command = "echo 'Replace this with your process command!'"
@@ -8,7 +23,3 @@ autostart = true
 autorestart = true
 stdout_logfile = "/home/luke/supervisorr/my_app.log"
 stderr_logfile = "/home/luke/supervisorr/my_app.err"
-
-# [program.my_app.environment]
-# PORT = "8080"
-# NODE_ENV = "production"

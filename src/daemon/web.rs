@@ -3,8 +3,12 @@ use axum::{
     Router,
     response::{Html, IntoResponse, Json},
 };
+use axum::extract::Multipart;
+use tokio::fs;
+use std::os::unix::fs::PermissionsExt;
+use crate::daemon::state::{ProcessState, SharedState, Status, Intent};
+use crate::config::ProgramConfig;
 use rust_embed::Embed;
-use crate::daemon::state::{SharedState, Status, Intent};
 use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,9 +27,19 @@ pub async fn start_web(state: SharedState) -> anyhow::Result<()> {
         .route("/api/action", post({
             let state = Arc::clone(&state);
             move |payload| api_action(state, payload)
-        }));
+        }))
+        .route("/api/upload", post({
+            let state = Arc::clone(&state);
+            move |multipart| api_upload(state, multipart)
+        }))
+        .layer(axum::extract::DefaultBodyLimit::disable());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let config_bind = {
+        let s = state.read().await;
+        s.config.supervisorr.as_ref().and_then(|sup| sup.web_bind.clone()).unwrap_or_else(|| "127.0.0.1:3000".to_string())
+    };
+
+    let addr: SocketAddr = config_bind.parse().unwrap_or_else(|_| "127.0.0.1:3000".parse().unwrap());
     println!("Web Dashboard listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -114,4 +128,63 @@ async fn api_action(state: SharedState, axum::Json(payload): axum::Json<ActionPa
     } else {
         Json(ActionResponse { success: false, error: Some("Process not found".to_string()) })
     }
+}
+
+async fn api_upload(state: SharedState, mut multipart: Multipart) -> Json<ActionResponse> {
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() == Some("executable") {
+            let mut raw_name = field.file_name().unwrap_or("uploaded_bin").to_string();
+            if let Some(clean) = std::path::Path::new(&raw_name).file_name() {
+                raw_name = clean.to_string_lossy().to_string();
+            }
+            let file_name = raw_name;
+            
+            let data = match field.bytes().await {
+                Ok(b) => b,
+                Err(e) => return Json(ActionResponse { success: false, error: Some(e.to_string()) }),
+            };
+            
+            let current_dir = std::env::current_dir().unwrap_or_default();
+            let path = current_dir.join(&file_name);
+            if let Err(e) = fs::write(&path, data).await {
+                return Json(ActionResponse { success: false, error: Some(format!("Failed to save: {}", e)) });
+            }
+            
+            if let Ok(metadata) = fs::metadata(&path).await {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&path, perms).await;
+            }
+
+            let new_prog = ProgramConfig {
+                command: path.to_string_lossy().to_string(),
+                directory: Some(current_dir.to_string_lossy().to_string()),
+                autostart: true,
+                autorestart: true,
+                environment: None,
+                stdout_logfile: Some(current_dir.join(format!("{}.log", file_name)).to_string_lossy().to_string()),
+                stderr_logfile: Some(current_dir.join(format!("{}.err", file_name)).to_string_lossy().to_string()),
+            };
+
+            {
+                let mut s = state.write().await;
+                s.config.program.insert(file_name.clone(), new_prog.clone());
+                if let Ok(toml_str) = toml::to_string(&s.config) {
+                    let _ = fs::write(&s.config_path, toml_str).await;
+                }
+                s.processes.insert(file_name.clone(), ProcessState {
+                    intent: Intent::Run,
+                    status: Status::Stopped,
+                });
+            }
+
+            let state_clone = state.clone();
+            tokio::spawn(async move {
+                crate::daemon::supervise_program(file_name, new_prog, state_clone).await;
+            });
+
+            return Json(ActionResponse { success: true, error: None });
+        }
+    }
+    Json(ActionResponse { success: false, error: Some("No executable found".to_string()) })
 }

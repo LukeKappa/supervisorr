@@ -22,13 +22,21 @@ pub struct ProcessState {
     pub status: Status,
 }
 
+use crate::config::Config;
+
 pub struct AppState {
     pub processes: HashMap<String, ProcessState>,
+    pub config: Config,
+    pub config_path: String,
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self { processes: HashMap::new() }
+    pub fn new(config: Config, config_path: String) -> Self {
+        Self { 
+            processes: HashMap::new(),
+            config,
+            config_path,
+        }
     }
 }
 

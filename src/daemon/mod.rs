@@ -25,7 +25,7 @@ pub async fn run(config_path: &str) -> anyhow::Result<()> {
         toml::from_str(&config_content)?
     };
 
-    let state = Arc::new(RwLock::new(AppState::new()));
+    let state = Arc::new(RwLock::new(AppState::new(config.clone(), config_path.to_string())));
 
     for (name, prog_config) in config.program.into_iter() {
         let intent = if prog_config.autostart { Intent::Run } else { Intent::Stop };
@@ -73,7 +73,7 @@ pub async fn run(config_path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn supervise_program(name: String, config: ProgramConfig, state: SharedState) {
+pub(crate) async fn supervise_program(name: String, config: ProgramConfig, state: SharedState) {
     loop {
         let intent = {
             let s = state.read().await;

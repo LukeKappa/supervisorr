@@ -6,6 +6,7 @@ use std::fs;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use std::sync::Arc;
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum IpcRequest {
@@ -27,6 +28,12 @@ pub async fn setup_ipc(socket_path: &str, state: SharedState) -> anyhow::Result<
     }
 
     let listener = UnixListener::bind(socket_path)?;
+    if let Ok(metadata) = fs::metadata(socket_path) {
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o600);
+        let _ = fs::set_permissions(socket_path, perms);
+    }
+    
     println!("IPC Server listening on {}", socket_path);
 
     loop {
