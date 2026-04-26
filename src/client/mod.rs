@@ -5,8 +5,9 @@ use crate::daemon::ipc::{IpcRequest, IpcResponse};
 
 async fn send_request(req: IpcRequest) -> anyhow::Result<IpcResponse> {
     // In a real app we'd get this path from args config, hardcoding for proxy demo
-    let socket_path = "/tmp/supervisorr.sock"; 
-    let mut stream = UnixStream::connect(socket_path).await?;
+    let socket_path = std::env::temp_dir().join("supervisorr.sock");
+    let socket_path_str = socket_path.to_string_lossy();
+    let mut stream = UnixStream::connect(socket_path_str.as_ref()).await?;
     let data = serde_json::to_vec(&req)?;
     stream.write_all(&data).await?;
     

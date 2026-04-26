@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     match &cli.command {
         Commands::Init { config } => {
             let default_config = r#"[supervisorr]
-# socket_file = "/tmp/supervisorr.sock"
+# socket_file = "/path/to/supervisorr.sock"
 
 [program.my_app]
 command = "echo 'Replace this with your process !'"

@@ -40,11 +40,13 @@ pub async fn run(config_path: &str) -> anyhow::Result<()> {
         });
     }
 
-    let socket_path = config.supervisorr.and_then(|s| s.socket_file).unwrap_or_else(|| "/tmp/supervisorr.sock".to_string());
+    let default_socket_path = std::env::temp_dir().join("supervisorr.sock").to_string_lossy().into_owned();
+    let socket_path = config.supervisorr.and_then(|s| s.socket_file).unwrap_or(default_socket_path);
     
     let state_clone = Arc::clone(&state);
+    let socket_path_clone = socket_path.clone();
     tokio::spawn(async move {
-        if let Err(e) = ipc::setup_ipc(&socket_path, state_clone).await {
+        if let Err(e) = ipc::setup_ipc(&socket_path_clone, state_clone).await {
             eprintln!("IPC server failed: {}", e);
         }
     });
@@ -68,7 +70,7 @@ pub async fn run(config_path: &str) -> anyhow::Result<()> {
     }
     
     // Cleanup socket file on exit
-    let _ = std::fs::remove_file("/tmp/supervisorr.sock");
+    let _ = std::fs::remove_file(&socket_path);
     
     Ok(())
 }
