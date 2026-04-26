@@ -21,13 +21,21 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: x86_64-unknown-linux-gnu, aarch64-linux-android
 
       - name: Install System Dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
 
-      - name: Build Optimized Executable
+      - name: Install cross
+        run: |
+          curl -L https://github.com/cross-rs/cross/releases/download/v0.2.5/cross-x86_64-unknown-linux-musl.tar.gz | tar xz -C ~/.cargo/bin
+          chmod +x ~/.cargo/bin/cross
+
+      - name: Build Optimized Executable (Linux)
         run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+      - name: Build Optimized Executable (Android/Termux)
+        run: cross build --release --locked --target aarch64-linux-android
 
       - name: Generate yymmdd Tag
         id: tag
@@ -41,7 +49,9 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.date }}
           name: Release ${{ steps.tag.outputs.date }}
-          files: target/x86_64-unknown-linux-gnu/release/supervisorr
+          files: |
+            target/x86_64-unknown-linux-gnu/release/supervisorr
+            target/aarch64-linux-android/release/supervisorr
           draft: false
           prerelease: false
           make_latest: true
